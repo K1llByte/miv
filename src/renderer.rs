@@ -1,8 +1,10 @@
 use wgpu::{
-    Backends, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, Limits, LoadOp, Operations, PowerPreference, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, Surface,
-    SurfaceConfiguration, SurfaceError, TextureViewDescriptor,
+    Backends, BlendState, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Face, Features, FragmentState, FrontFace, Instance, InstanceDescriptor,
+    Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode,
+    PowerPreference, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, Surface,
+    SurfaceConfiguration, SurfaceError, TextureViewDescriptor, VertexState,
 };
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -17,6 +19,8 @@ pub struct Renderer<'win> {
     // may reconfigure surface on resize
     config: SurfaceConfiguration,
     pub size: PhysicalSize<u32>,
+    // Render pipeline
+    render_pipeline: RenderPipeline,
 }
 
 impl<'win> Renderer<'win> {
@@ -42,7 +46,9 @@ impl<'win> Renderer<'win> {
             })
             .await
             .unwrap();
-        println!("{:?}", adapter.get_info());
+
+        log::info!("{:?}", adapter.get_info());
+
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
@@ -62,12 +68,54 @@ impl<'win> Renderer<'win> {
             .unwrap();
         surface.configure(&device, &config);
 
+        // Create render pipeline //
+        let shader = device.create_shader_module(wgpu::include_wgsl!("../default.wgsl"));
+        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            ..Default::default()
+        });
+        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(ColorTargetState {
+                    format: config.format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: FrontFace::Ccw,
+                conservative: false,
+                unclipped_depth: false,
+                polygon_mode: PolygonMode::Fill,
+                cull_mode: Some(Face::Back),
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None, // 5.
+        });
+
         Self {
             surface,
             device,
             queue,
             config,
             size,
+            render_pipeline,
         }
     }
 
@@ -96,7 +144,7 @@ impl<'win> Renderer<'win> {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &view,
@@ -115,6 +163,8 @@ impl<'win> Renderer<'win> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
 
         // Submit will accept anything that implements IntoIter

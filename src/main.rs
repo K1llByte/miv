@@ -6,8 +6,8 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopWindowTarget};
 use winit::window::WindowBuilder;
 
-mod gfx_context;
-use gfx_context::Renderer;
+mod renderer;
+use renderer::Renderer;
 
 fn handle_window_event(
     win_event: WindowEvent,
